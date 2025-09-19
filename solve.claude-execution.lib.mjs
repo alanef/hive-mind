@@ -78,18 +78,33 @@ export const executeClaudeCommand = async (params) => {
   // Debug logging to diagnose the issue
   console.error('[DEBUG] Type of $:', typeof $);
   console.error('[DEBUG] $ is:', $);
+  console.error('[DEBUG] $ is a function:', typeof $ === 'function');
 
   if (!$) {
     console.error('[ERROR] $ is undefined in executeClaudeCommand');
     throw new Error('Command stream ($) is not available');
   }
 
+  if (typeof $ !== 'function') {
+    console.error('[ERROR] $ is not a function, it is:', typeof $);
+    console.error('[ERROR] $ value:', $);
+    throw new Error('Command stream ($) is not a function');
+  }
+
   // Execute the Claude command
-  const commandStream = $({
-    cwd: tempDir,
-    shell: true,
-    exitOnError: false
-  })`${claudePath} ${claudeArgs} | jq -c .`;
+  let commandStream;
+  try {
+    commandStream = $({
+      cwd: tempDir,
+      shell: true,
+      exitOnError: false
+    })`${claudePath} ${claudeArgs} | jq -c .`;
+  } catch (cmdError) {
+    console.error('[ERROR] Failed to create command stream:', cmdError);
+    console.error('[ERROR] Error message:', cmdError.message);
+    console.error('[ERROR] Error stack:', cmdError.stack);
+    throw new Error(`Failed to create command stream: ${cmdError.message}`);
+  }
 
   console.error('[DEBUG] Type of commandStream:', typeof commandStream);
   console.error('[DEBUG] commandStream is:', commandStream);

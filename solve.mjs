@@ -48,11 +48,88 @@ globalThis.use = use;
 
 // Use command-stream for consistent $ behavior across runtimes
 console.error('[DEBUG solve.mjs] Loading command-stream...');
-const commandStreamModule = await use('command-stream');
-console.error('[DEBUG solve.mjs] command-stream module loaded:', !!commandStreamModule);
-console.error('[DEBUG solve.mjs] command-stream module has $:', !!commandStreamModule?.$);
-const { $ } = commandStreamModule;
-console.error('[DEBUG solve.mjs] $ extracted:', typeof $, !!$);
+let $;
+try {
+  const commandStreamModule = await use('command-stream');
+  console.error('[DEBUG solve.mjs] command-stream module loaded:', !!commandStreamModule);
+  console.error('[DEBUG solve.mjs] command-stream module type:', typeof commandStreamModule);
+  console.error('[DEBUG solve.mjs] command-stream module keys:', Object.keys(commandStreamModule || {}));
+  console.error('[DEBUG solve.mjs] command-stream module has $:', !!commandStreamModule?.$);
+
+  // Try different ways to get $ from the module
+  if (commandStreamModule && commandStreamModule.$) {
+    $ = commandStreamModule.$;
+  } else if (commandStreamModule && typeof commandStreamModule === 'function') {
+    // Maybe the module itself is the $ function
+    $ = commandStreamModule;
+  } else if (commandStreamModule && commandStreamModule.default) {
+    // Maybe it's exported as default
+    $ = commandStreamModule.default;
+  }
+
+  console.error('[DEBUG solve.mjs] $ extracted:', typeof $, !!$);
+  console.error('[DEBUG solve.mjs] $ is function:', typeof $ === 'function');
+
+  if (!$) {
+    throw new Error('Could not extract $ from command-stream module');
+  }
+} catch (error) {
+  console.error('[ERROR solve.mjs] Failed to load command-stream:', error.message);
+  console.error('[ERROR solve.mjs] Full error:', error);
+
+  // Fallback: Try to use child_process exec as a workaround
+  console.error('[DEBUG solve.mjs] Attempting fallback to child_process...');
+  const { exec } = await import('child_process');
+  const { promisify } = await import('util');
+  const execAsync = promisify(exec);
+
+  // Create a mock $ function that mimics command-stream behavior
+  $ = (options) => {
+    return (strings, ...values) => {
+      const command = String.raw(strings, ...values);
+      console.error('[DEBUG solve.mjs] Fallback $ executing:', command);
+
+      // Return an async iterable that yields output chunks
+      return {
+        [Symbol.asyncIterator]: async function* () {
+          try {
+            const result = await execAsync(command, {
+              cwd: options?.cwd || process.cwd(),
+              shell: options?.shell !== false,
+              maxBuffer: 10 * 1024 * 1024 // 10MB buffer
+            });
+
+            // Yield stdout if present
+            if (result.stdout) {
+              yield { stdout: result.stdout };
+            }
+
+            // Yield stderr if present
+            if (result.stderr) {
+              yield { stderr: result.stderr };
+            }
+
+            // Signal completion
+            yield { done: true, code: 0 };
+          } catch (error) {
+            // Yield error output
+            if (error.stderr) {
+              yield { stderr: error.stderr };
+            }
+            if (error.stdout) {
+              yield { stdout: error.stdout };
+            }
+
+            // Signal failure
+            yield { done: true, code: error.code || 1, signal: error.signal };
+          }
+        }
+      };
+    };
+  };
+
+  console.error('[DEBUG solve.mjs] Fallback $ function created');
+}
 
 // Import CLI configuration module
 const config = await import('./solve.config.lib.mjs');
