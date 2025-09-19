@@ -107,73 +107,96 @@ export const executeClaudeCommand = async (params) => {
   }
 
   console.error('[DEBUG] Type of commandStream:', typeof commandStream);
-  console.error('[DEBUG] commandStream is:', commandStream);
   console.error('[DEBUG] commandStream has Symbol.asyncIterator:', !!commandStream?.[Symbol.asyncIterator]);
 
-  // Check if commandStream needs to be started or if we need to access a stream property
+  // The command-stream module returns a ProcessRunner that's awaitable, not async-iterable
+  // We need to execute it and process the output
   if (!commandStream[Symbol.asyncIterator]) {
-    console.error('[DEBUG] commandStream properties:', Object.keys(commandStream));
+    console.error('[DEBUG] Command-stream is not async-iterable, executing as awaitable...');
 
-    // Check if there's a stream() method or similar
-    if (typeof commandStream.stream === 'function') {
-      console.error('[DEBUG] Found stream() method, calling it...');
-      commandStream = commandStream.stream();
-    } else if (typeof commandStream.stdout === 'function') {
-      console.error('[DEBUG] Found stdout() method, calling it...');
-      commandStream = commandStream.stdout();
-    } else if (commandStream._virtualGenerator) {
-      console.error('[DEBUG] Found _virtualGenerator, using it...');
-      commandStream = commandStream._virtualGenerator;
-    } else {
-      // Try to make it async iterable manually
-      console.error('[DEBUG] Creating manual async iterator...');
-      const originalStream = commandStream;
+    // Execute the command and get the result
+    try {
+      const result = await commandStream;
+      console.error('[DEBUG] Command completed. Exit code:', result.code);
 
-      // Create async iterable wrapper
-      commandStream = {
-        [Symbol.asyncIterator]: async function* () {
-          // Start the command if not started
-          if (!originalStream.started && typeof originalStream.start === 'function') {
-            console.error('[DEBUG] Starting command stream...');
-            await originalStream.start();
-          }
+      // Process the output
+      if (result.stdout) {
+        const lines = result.stdout.split('\n').filter(line => line.trim());
 
-          // Try to get the result
+        for (const line of lines) {
           try {
-            const result = await originalStream;
-            console.error('[DEBUG] Command completed with result:', result);
+            const data = JSON.parse(line);
 
-            // Yield stdout if present
-            if (result && result.stdout) {
-              yield { stdout: result.stdout };
+            // Capture session ID from the first message
+            if (!sessionId && data.session_id) {
+              sessionId = data.session_id;
+              await log(`📌 Session ID: ${sessionId}`, { verbose: true });
             }
 
-            // Yield stderr if present
-            if (result && result.stderr) {
-              yield { stderr: result.stderr };
+            // Track message and tool use counts
+            if (data.type === 'message') {
+              messageCount++;
+            } else if (data.type === 'tool_use') {
+              toolUseCount++;
             }
 
-            // Signal completion
-            yield { done: true, code: result ? result.code : 0 };
-          } catch (error) {
-            console.error('[DEBUG] Command failed:', error);
-            yield { stderr: error.message || 'Command failed' };
-            yield { done: true, code: error.code || 1 };
+            // Format the output nicely
+            if (data.type === 'text') {
+              // Text from assistant
+              if (data.text) {
+                await log(data.text, { stream: 'claude' });
+                lastMessage = data.text;
+              }
+            } else if (data.type === 'tool_use' && data.name) {
+              // Tool use - show a concise summary
+              await log(`🔧 Using tool: ${data.name}`, { stream: 'tool', verbose: true });
+
+              // For key tools, show their input in verbose mode
+              if (argv.verbose && data.input) {
+                if (data.name === 'bash' && data.input.command) {
+                  await log(`   $ ${data.input.command}`, { stream: 'tool-detail', verbose: true });
+                } else if (data.name === 'write' && data.input.path) {
+                  await log(`   Writing to: ${data.input.path}`, { stream: 'tool-detail', verbose: true });
+                } else if (data.name === 'read' && data.input.path) {
+                  await log(`   Reading: ${data.input.path}`, { stream: 'tool-detail', verbose: true });
+                }
+              }
+            } else if (data.type === 'tool_result' && argv.verbose) {
+              // Tool result in verbose mode - show if it's an error
+              if (data.error) {
+                await log(`   ⚠️  Tool error: ${data.error}`, { stream: 'tool-error', verbose: true });
+              } else if (data.output && data.output.length < 200) {
+                // Only show short outputs in verbose mode
+                const output = data.output.replace(/\n/g, '\n   ');
+                await log(`   Result: ${output}`, { stream: 'tool-result', verbose: true });
+              }
+            } else if (data.type === 'error') {
+              // Error from Claude
+              await log(`❌ Error: ${data.error || JSON.stringify(data)}`, { stream: 'error', level: 'error' });
+              lastMessage = data.error || JSON.stringify(data);
+            } else if (data.type === 'message' && data.role === 'assistant' && argv.verbose) {
+              // Message metadata
+              await log(`📨 Message ${messageCount} from assistant`, { stream: 'meta', verbose: true });
+            }
+
+          } catch (parseError) {
+            // Not JSON or parsing failed, output as-is if it's not empty
+            if (line.trim() && !line.includes('node:internal')) {
+              await log(line, { stream: 'raw' });
+              lastMessage = line;
+            }
           }
         }
-      };
-    }
-  }
+      }
 
-  console.error('[DEBUG] Final commandStream has Symbol.asyncIterator:', !!commandStream?.[Symbol.asyncIterator]);
+      // Check for stderr
+      if (result.stderr) {
+        await log(result.stderr, { stream: 'stderr' });
+      }
 
-  for await (const chunk of commandStream) {
-
-    // Handle command exit
-    if (chunk.done) {
-      if (chunk.code !== 0) {
+      // Check if command failed
+      if (result.code !== 0) {
         commandFailed = true;
-        const exitReason = chunk.signal ? ` (signal: ${chunk.signal})` : '';
 
         // Check if we hit a rate limit
         if (lastMessage.includes('rate_limit_exceeded') ||
@@ -190,7 +213,7 @@ export const executeClaudeCommand = async (params) => {
         } else if (lastMessage.includes('context_length_exceeded')) {
           await log(`\n\n❌ Context length exceeded. Try with a smaller issue or split the work.`, { level: 'error' });
         } else {
-          await log(`\n\n❌ Claude command failed with exit code ${chunk.code}${exitReason}`, { level: 'error' });
+          await log(`\n\n❌ Claude command failed with exit code ${result.code}`, { level: 'error' });
           if (sessionId && !argv.resume) {
             await log(`📌 Session ID for resuming: ${sessionId}`);
             await log(`\nTo resume this session, run:`);
@@ -198,83 +221,123 @@ export const executeClaudeCommand = async (params) => {
           }
         }
       }
-      break;
+    } catch (execError) {
+      console.error('[ERROR] Command execution failed:', execError);
+      commandFailed = true;
+      await log(`\n\n❌ Claude command failed: ${execError.message}`, { level: 'error' });
     }
+  } else {
+    // Original async iteration code for environments where it works
+    console.error('[DEBUG] Using async iteration...');
 
-    // Process streaming output
-    const output = chunk.stdout ? chunk.stdout.toString() : '';
-    const errorOutput = chunk.stderr ? chunk.stderr.toString() : '';
+    for await (const chunk of commandStream) {
+      // Handle command exit
+      if (chunk.done) {
+        if (chunk.code !== 0) {
+          commandFailed = true;
+          const exitReason = chunk.signal ? ` (signal: ${chunk.signal})` : '';
 
-    // Log stderr if present
-    if (errorOutput) {
-      await log(errorOutput, { stream: 'stderr' });
-    }
+          // Check if we hit a rate limit
+          if (lastMessage.includes('rate_limit_exceeded') ||
+              lastMessage.includes('You have exceeded your rate limit') ||
+              lastMessage.includes('rate limit')) {
+            limitReached = true;
+            await log(`\n\n⏳ Rate limit reached. The session can be resumed later.`, { level: 'warning' });
 
-    // Process each line of stdout
-    if (output) {
-      const lines = output.split('\n').filter(line => line.trim());
-
-      for (const line of lines) {
-        try {
-          const data = JSON.parse(line);
-
-          // Capture session ID from the first message
-          if (!sessionId && data.session_id) {
-            sessionId = data.session_id;
-            await log(`📌 Session ID: ${sessionId}`, { verbose: true });
-          }
-
-          // Track message and tool use counts
-          if (data.type === 'message') {
-            messageCount++;
-          } else if (data.type === 'tool_use') {
-            toolUseCount++;
-          }
-
-          // Format the output nicely
-          if (data.type === 'text') {
-            // Text from assistant
-            if (data.text) {
-              await log(data.text, { stream: 'claude' });
-              lastMessage = data.text;
+            if (sessionId) {
+              await log(`📌 Session ID for resuming: ${sessionId}`);
+              await log(`\nTo continue when the rate limit resets, run:`);
+              await log(`   ${process.argv[0]} ${process.argv[1]} --auto-continue ${argv.url}`);
             }
-          } else if (data.type === 'tool_use' && data.name) {
-            // Tool use - show a concise summary
-            await log(`🔧 Using tool: ${data.name}`, { stream: 'tool', verbose: true });
+          } else if (lastMessage.includes('context_length_exceeded')) {
+            await log(`\n\n❌ Context length exceeded. Try with a smaller issue or split the work.`, { level: 'error' });
+          } else {
+            await log(`\n\n❌ Claude command failed with exit code ${chunk.code}${exitReason}`, { level: 'error' });
+            if (sessionId && !argv.resume) {
+              await log(`📌 Session ID for resuming: ${sessionId}`);
+              await log(`\nTo resume this session, run:`);
+              await log(`   ${process.argv[0]} ${process.argv[1]} ${argv.url} --resume ${sessionId}`);
+            }
+          }
+        }
+        break;
+      }
 
-            // For key tools, show their input in verbose mode
-            if (argv.verbose && data.input) {
-              if (data.name === 'bash' && data.input.command) {
-                await log(`   $ ${data.input.command}`, { stream: 'tool-detail', verbose: true });
-              } else if (data.name === 'write' && data.input.path) {
-                await log(`   Writing to: ${data.input.path}`, { stream: 'tool-detail', verbose: true });
-              } else if (data.name === 'read' && data.input.path) {
-                await log(`   Reading: ${data.input.path}`, { stream: 'tool-detail', verbose: true });
+      // Process streaming output
+      const output = chunk.stdout ? chunk.stdout.toString() : '';
+      const errorOutput = chunk.stderr ? chunk.stderr.toString() : '';
+
+      // Log stderr if present
+      if (errorOutput) {
+        await log(errorOutput, { stream: 'stderr' });
+      }
+
+      // Process each line of stdout
+      if (output) {
+        const lines = output.split('\n').filter(line => line.trim());
+
+        for (const line of lines) {
+          try {
+            const data = JSON.parse(line);
+
+            // Capture session ID from the first message
+            if (!sessionId && data.session_id) {
+              sessionId = data.session_id;
+              await log(`📌 Session ID: ${sessionId}`, { verbose: true });
+            }
+
+            // Track message and tool use counts
+            if (data.type === 'message') {
+              messageCount++;
+            } else if (data.type === 'tool_use') {
+              toolUseCount++;
+            }
+
+            // Format the output nicely
+            if (data.type === 'text') {
+              // Text from assistant
+              if (data.text) {
+                await log(data.text, { stream: 'claude' });
+                lastMessage = data.text;
               }
-            }
-          } else if (data.type === 'tool_result' && argv.verbose) {
-            // Tool result in verbose mode - show if it's an error
-            if (data.error) {
-              await log(`   ⚠️  Tool error: ${data.error}`, { stream: 'tool-error', verbose: true });
-            } else if (data.output && data.output.length < 200) {
-              // Only show short outputs in verbose mode
-              const output = data.output.replace(/\n/g, '\n   ');
-              await log(`   Result: ${output}`, { stream: 'tool-result', verbose: true });
-            }
-          } else if (data.type === 'error') {
-            // Error from Claude
-            await log(`❌ Error: ${data.error || JSON.stringify(data)}`, { stream: 'error', level: 'error' });
-            lastMessage = data.error || JSON.stringify(data);
-          } else if (data.type === 'message' && data.role === 'assistant' && argv.verbose) {
-            // Message metadata
-            await log(`📨 Message ${messageCount} from assistant`, { stream: 'meta', verbose: true });
-          }
+            } else if (data.type === 'tool_use' && data.name) {
+              // Tool use - show a concise summary
+              await log(`🔧 Using tool: ${data.name}`, { stream: 'tool', verbose: true });
 
-        } catch (parseError) {
-          // Not JSON or parsing failed, output as-is if it's not empty
-          if (line.trim() && !line.includes('node:internal')) {
-            await log(line, { stream: 'raw' });
-            lastMessage = line;
+              // For key tools, show their input in verbose mode
+              if (argv.verbose && data.input) {
+                if (data.name === 'bash' && data.input.command) {
+                  await log(`   $ ${data.input.command}`, { stream: 'tool-detail', verbose: true });
+                } else if (data.name === 'write' && data.input.path) {
+                  await log(`   Writing to: ${data.input.path}`, { stream: 'tool-detail', verbose: true });
+                } else if (data.name === 'read' && data.input.path) {
+                  await log(`   Reading: ${data.input.path}`, { stream: 'tool-detail', verbose: true });
+                }
+              }
+            } else if (data.type === 'tool_result' && argv.verbose) {
+              // Tool result in verbose mode - show if it's an error
+              if (data.error) {
+                await log(`   ⚠️  Tool error: ${data.error}`, { stream: 'tool-error', verbose: true });
+              } else if (data.output && data.output.length < 200) {
+                // Only show short outputs in verbose mode
+                const output = data.output.replace(/\n/g, '\n   ');
+                await log(`   Result: ${output}`, { stream: 'tool-result', verbose: true });
+              }
+            } else if (data.type === 'error') {
+              // Error from Claude
+              await log(`❌ Error: ${data.error || JSON.stringify(data)}`, { stream: 'error', level: 'error' });
+              lastMessage = data.error || JSON.stringify(data);
+            } else if (data.type === 'message' && data.role === 'assistant' && argv.verbose) {
+              // Message metadata
+              await log(`📨 Message ${messageCount} from assistant`, { stream: 'meta', verbose: true });
+            }
+
+          } catch (parseError) {
+            // Not JSON or parsing failed, output as-is if it's not empty
+            if (line.trim() && !line.includes('node:internal')) {
+              await log(line, { stream: 'raw' });
+              lastMessage = line;
+            }
           }
         }
       }
