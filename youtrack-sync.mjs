@@ -162,18 +162,20 @@ ${youTrackIssue.description || 'No description provided.'}
 /**
  * Sync all YouTrack issues to GitHub
  * @param {Object} youTrackConfig - YouTrack configuration
- * @param {string} owner - GitHub repository owner
- * @param {string} repo - GitHub repository name
+ * @param {string} defaultOwner - Default GitHub repository owner (not used with project mapping)
+ * @param {string} defaultRepo - Default GitHub repository name (not used with project mapping)
  * @param {Object} $ - Command execution function
  * @param {Function} log - Logging function
  * @returns {Array} Array of GitHub issues (created or updated)
  */
-export async function syncYouTrackToGitHub(youTrackConfig, owner, repo, $, log) {
+export async function syncYouTrackToGitHub(youTrackConfig, defaultOwner, defaultRepo, $, log) {
   await log(`\n🔄 Syncing YouTrack issues to GitHub...`);
   await log(`   📍 YouTrack: ${youTrackConfig.url}`);
-  await log(`   📋 Project: ${youTrackConfig.projectCode}`);
+  const { parseProjectMapping } = await import('./youtrack.lib.mjs');
+  const projectMapping = parseProjectMapping(youTrackConfig.projectMap);
+  const projectCodes = Object.keys(projectMapping);
+  await log(`   📋 Projects: ${projectCodes.join(', ')}`);
   await log(`   📌 Stage: "${youTrackConfig.stage}"`);
-  await log(`   🎯 Target: ${owner}/${repo}`);
 
   // Fetch YouTrack issues
   const youTrackIssues = await fetchYouTrackIssues(youTrackConfig);
@@ -185,16 +187,46 @@ export async function syncYouTrackToGitHub(youTrackConfig, owner, repo, $, log) 
 
   await log(`   📊 Found ${youTrackIssues.length} issue(s) to sync`);
 
-  // Sync each issue to GitHub
+  // Group issues by target repository
+  const issuesByRepo = {};
+  for (const issue of youTrackIssues) {
+    const repo = issue.githubRepo;
+    if (!repo) {
+      await log(`   ⚠️ No GitHub repo mapping for ${issue.id}`, { level: 'warn' });
+      continue;
+    }
+    if (!issuesByRepo[repo]) {
+      issuesByRepo[repo] = [];
+    }
+    issuesByRepo[repo].push(issue);
+  }
+
+  // Show distribution
+  await log(`   🔀 Issue distribution:`);
+  for (const [repo, issues] of Object.entries(issuesByRepo)) {
+    await log(`      ${repo}: ${issues.length} issue(s)`);
+  }
+
+  // Sync each issue to its target GitHub repo
   const githubIssues = [];
-  for (const ytIssue of youTrackIssues) {
-    const ghIssue = await syncYouTrackIssueToGitHub(ytIssue, owner, repo, youTrackConfig, $, log);
-    if (ghIssue) {
-      githubIssues.push({
-        ...ghIssue,
-        youtrackId: ytIssue.id,
-        youtrackUrl: `${youTrackConfig.url}/issue/${ytIssue.idReadable}`
-      });
+  for (const [repoPath, issues] of Object.entries(issuesByRepo)) {
+    const [owner, repo] = repoPath.split('/');
+    if (!owner || !repo) {
+      await log(`   ❌ Invalid repo format: ${repoPath} (expected owner/repo)`, { level: 'error' });
+      continue;
+    }
+
+    await log(`\n   🎯 Syncing to ${owner}/${repo}...`);
+    for (const ytIssue of issues) {
+      const ghIssue = await syncYouTrackIssueToGitHub(ytIssue, owner, repo, youTrackConfig, $, log);
+      if (ghIssue) {
+        githubIssues.push({
+          ...ghIssue,
+          youtrackId: ytIssue.id,
+          youtrackUrl: `${youTrackConfig.url}/issue/${ytIssue.idReadable || ytIssue.id}`,
+          targetRepo: repoPath
+        });
+      }
     }
   }
 

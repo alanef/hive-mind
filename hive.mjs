@@ -758,10 +758,7 @@ async function fetchIssues() {
 
     if (argv.youtrackMode) {
       // Sync YouTrack issues to GitHub
-      if (!owner || !repo) {
-        throw new Error('YouTrack mode requires a specific repository URL (not organization/user)');
-      }
-
+      // Note: In multi-project mode, owner/repo from URL is ignored as issues are routed per project mapping
       const githubIssues = await syncYouTrackToGitHub(youTrackConfig, owner, repo, $, log);
 
       // Convert to format expected by hive
