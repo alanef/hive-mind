@@ -183,8 +183,8 @@ const createYargsConfig = (yargsInstance) => {
     })
     .option('skip-issues-with-prs', {
       type: 'boolean',
-      description: 'Skip issues that already have open pull requests',
-      default: false,
+      description: 'Skip issues that already have open pull requests (recommended to prevent duplicates)',
+      default: true,
       alias: 's'
     })
     .option('concurrency', {
