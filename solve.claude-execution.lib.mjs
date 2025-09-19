@@ -126,11 +126,15 @@ export const executeClaudeCommand = async (params) => {
 
     // Try different command execution methods
     console.error('[DEBUG] Attempting method 1: direct command with pipe');
+
+    // Use sh -c to ensure proper command parsing
+    const shellCommand = `sh -c '${fullClaudeCommand} | jq -c .'`;
+    console.error('[DEBUG] Shell command to execute:', shellCommand);
+
     commandStream = $({
       cwd: tempDir,
-      shell: true,
       exitOnError: false
-    })`${fullClaudeCommand} | jq -c .`;
+    })`${shellCommand}`;
   } catch (cmdError) {
     console.error('[ERROR] Failed to create command stream:', cmdError);
     console.error('[ERROR] Error message:', cmdError.message);

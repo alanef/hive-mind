@@ -832,6 +832,11 @@ Issue: ${issueUrl}`;
           let issueTitle = `Fix issue #${issueNumber}`;
           if (issueTitleResult.code === 0) {
             issueTitle = issueTitleResult.stdout.toString().trim();
+            // Remove any surrounding quotes that gh api might add
+            if ((issueTitle.startsWith('"') && issueTitle.endsWith('"')) ||
+                (issueTitle.startsWith("'") && issueTitle.endsWith("'"))) {
+              issueTitle = issueTitle.slice(1, -1);
+            }
             await log(`   Issue title: "${issueTitle}"`, { verbose: true });
           } else {
             await log(`   Warning: Could not get issue title, using default`, { verbose: true });
@@ -919,13 +924,15 @@ ${prBody}`, { verbose: true });
             await fs.writeFile(prBodyFile, prBody);
             
             // Build command with optional assignee and handle forks
+            // Escape the issue title for shell to prevent issues with special characters
+            const escapedIssueTitle = issueTitle.replace(/"/g, '\\"').replace(/'/g, "\\'").replace(/\$/g, '\\$');
             let command;
             if (argv.fork && forkedRepo) {
               // For forks, specify the full head reference
               const forkUser = forkedRepo.split('/')[0];
-              command = `cd "${tempDir}" && gh pr create --draft --title "[WIP] ${issueTitle}" --body-file "${prBodyFile}" --base ${defaultBranch} --head ${forkUser}:${branchName} --repo ${owner}/${repo}`;
+              command = `cd "${tempDir}" && gh pr create --draft --title "[WIP] ${escapedIssueTitle}" --body-file "${prBodyFile}" --base ${defaultBranch} --head ${forkUser}:${branchName} --repo ${owner}/${repo}`;
             } else {
-              command = `cd "${tempDir}" && gh pr create --draft --title "[WIP] ${issueTitle}" --body-file "${prBodyFile}" --base ${defaultBranch} --head ${branchName}`;
+              command = `cd "${tempDir}" && gh pr create --draft --title "[WIP] ${escapedIssueTitle}" --body-file "${prBodyFile}" --base ${defaultBranch} --head ${branchName}`;
             }
             // Only add assignee if user has permissions
             if (currentUser && canAssign) {
