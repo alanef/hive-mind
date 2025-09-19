@@ -58,7 +58,8 @@ if gh auth status >/dev/null 2>&1 && [ -n "$GITHUB_URL" ]; then
   # Add options based on environment variables
   [ -n "$MONITOR_TAG" ] && HIVE_CMD="$HIVE_CMD --monitor-tag \"$MONITOR_TAG\""
   [ "$ALL_ISSUES" = "true" ] && HIVE_CMD="$HIVE_CMD --all-issues"
-  [ "$SKIP_ISSUES_WITH_PRS" = "true" ] && HIVE_CMD="$HIVE_CMD --skip-issues-with-prs"
+  # Skip issues with PRs is now enabled by default, so we only need to handle disabling it
+  [ "$SKIP_ISSUES_WITH_PRS" = "false" ] && HIVE_CMD="$HIVE_CMD --no-skip-issues-with-prs"
   [ -n "$CONCURRENCY" ] && HIVE_CMD="$HIVE_CMD --concurrency $CONCURRENCY"
   [ -n "$PULL_REQUESTS_PER_ISSUE" ] && HIVE_CMD="$HIVE_CMD --pull-requests-per-issue $PULL_REQUESTS_PER_ISSUE"
   [ -n "$MODEL" ] && HIVE_CMD="$HIVE_CMD --model $MODEL"
