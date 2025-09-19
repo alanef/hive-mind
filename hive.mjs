@@ -453,27 +453,31 @@ if (!repo) {
 }
 
 await log(`🎯 Monitoring Configuration:`);
+
+// Show YouTrack configuration if enabled
 if (argv.youtrackMode) {
-  await log(`   📍 Source: YouTrack - ${youTrackConfig.url}`);
+  await log(`   📥 YouTrack Sync:`);
+  await log(`      URL: ${youTrackConfig.url}`);
   const { parseProjectMapping } = await import('./youtrack.lib.mjs');
   const projectMapping = parseProjectMapping(youTrackConfig.projectMap);
   const projectCodes = Object.keys(projectMapping);
-  await log(`   📋 Projects: ${projectCodes.join(', ')}`);
-  await log(`   🔀 Mappings:`);
+  await log(`      Projects: ${projectCodes.join(', ')}`);
+  await log(`      Stage: "${youTrackConfig.stage}"`);
+  await log(`      Mappings:`);
   for (const [proj, repo] of Object.entries(projectMapping)) {
-    await log(`      ${proj} → ${repo}`);
+    await log(`         ${proj} → ${repo}`);
   }
-  await log(`   📌 Stage: "${youTrackConfig.stage}"`);
+}
+
+// Always show GitHub configuration
+await log(`   📍 GitHub Target: ${scope.charAt(0).toUpperCase() + scope.slice(1)} - ${owner}${repo ? `/${repo}` : ''}`);
+if (argv.projectMode) {
+  await log(`   📋 Mode: PROJECT #${argv.projectNumber} (owner: ${argv.projectOwner})`);
+  await log(`   📌 Status: "${argv.projectStatus}"`);
+} else if (argv.allIssues) {
+  await log(`   🏷️  Mode: ALL ISSUES (no label filter)`);
 } else {
-  await log(`   📍 Target: ${scope.charAt(0).toUpperCase() + scope.slice(1)} - ${owner}${repo ? `/${repo}` : ''}`);
-  if (argv.projectMode) {
-    await log(`   📋 Mode: PROJECT #${argv.projectNumber} (owner: ${argv.projectOwner})`);
-    await log(`   📌 Status: "${argv.projectStatus}"`);
-  } else if (argv.allIssues) {
-    await log(`   🏷️  Mode: ALL ISSUES (no label filter)`);
-  } else {
-    await log(`   🏷️  Tag: "${argv.monitorTag}"`);
-  }
+  await log(`   🏷️  Tag: "${argv.monitorTag}"`);
 }
 if (argv.skipIssuesWithPrs) {
   await log(`   🚫 Skipping: Issues with open PRs`);
@@ -756,19 +760,15 @@ async function fetchIssues() {
   try {
     let issues = [];
 
+    // First, sync YouTrack issues if in YouTrack mode
     if (argv.youtrackMode) {
-      // Sync YouTrack issues to GitHub
-      // Note: In multi-project mode, owner/repo from URL is ignored as issues are routed per project mapping
-      const githubIssues = await syncYouTrackToGitHub(youTrackConfig, owner, repo, $, log);
+      await log(`\n📥 Syncing YouTrack issues to GitHub...`);
+      // This creates/updates GitHub issues in the appropriate repos
+      await syncYouTrackToGitHub(youTrackConfig, owner, repo, $, log);
+    }
 
-      // Convert to format expected by hive
-      issues = formatIssuesForHive(githubIssues).map(issue => ({
-        url: issue.html_url,
-        title: issue.title,
-        number: issue.number
-      }));
-
-    } else if (argv.projectMode) {
+    // Now fetch GitHub issues (whether from YouTrack sync or native GitHub issues)
+    if (argv.projectMode) {
       // Use GitHub Projects v2 mode
       if (!argv.projectNumber || !argv.projectOwner) {
         throw new Error('Project mode requires --project-number and --project-owner');

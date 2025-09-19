@@ -47,7 +47,12 @@ const { use } = eval(await (await fetch('https://unpkg.com/use-m/use.js')).text(
 globalThis.use = use;
 
 // Use command-stream for consistent $ behavior across runtimes
-const { $ } = await use('command-stream');
+console.error('[DEBUG solve.mjs] Loading command-stream...');
+const commandStreamModule = await use('command-stream');
+console.error('[DEBUG solve.mjs] command-stream module loaded:', !!commandStreamModule);
+console.error('[DEBUG solve.mjs] command-stream module has $:', !!commandStreamModule?.$);
+const { $ } = commandStreamModule;
+console.error('[DEBUG solve.mjs] $ extracted:', typeof $, !!$);
 
 // Import CLI configuration module
 const config = await import('./solve.config.lib.mjs');

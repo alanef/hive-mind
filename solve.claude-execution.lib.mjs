@@ -75,12 +75,27 @@ export const executeClaudeCommand = async (params) => {
 
   await log(`\n${formatAligned('▶️', 'Streaming output:', '')}\n`);
 
+  // Debug logging to diagnose the issue
+  console.error('[DEBUG] Type of $:', typeof $);
+  console.error('[DEBUG] $ is:', $);
+
+  if (!$) {
+    console.error('[ERROR] $ is undefined in executeClaudeCommand');
+    throw new Error('Command stream ($) is not available');
+  }
+
   // Execute the Claude command
-  for await (const chunk of $({
+  const commandStream = $({
     cwd: tempDir,
     shell: true,
     exitOnError: false
-  })`${claudePath} ${claudeArgs} | jq -c .`) {
+  })`${claudePath} ${claudeArgs} | jq -c .`;
+
+  console.error('[DEBUG] Type of commandStream:', typeof commandStream);
+  console.error('[DEBUG] commandStream is:', commandStream);
+  console.error('[DEBUG] commandStream has Symbol.asyncIterator:', !!commandStream?.[Symbol.asyncIterator]);
+
+  for await (const chunk of commandStream) {
 
     // Handle command exit
     if (chunk.done) {
