@@ -828,7 +828,7 @@ async function fetchIssues() {
           return [];
         }
 
-        return issues;
+        // Don't return here - let it fall through to the main return statement
       }
       
       await log(`   🔎 Fetching all issues with pagination and rate limiting...`);
@@ -929,7 +929,7 @@ async function fetchIssues() {
             return [];
           }
 
-          return issues;
+          // Don't return here - let it fall through to the main return statement
         }
         
         // Handle label with potential spaces
