@@ -929,41 +929,43 @@ async function fetchIssues() {
             return [];
           }
 
-          // Don't return here - let it fall through to the main return statement
+          // User scope is fully handled - skip the organization search logic below
         }
-        
-        // Handle label with potential spaces
-        let searchQuery;
-        let searchCmd;
-        
-        if (argv.monitorTag.includes(' ')) {
-          searchQuery = `${baseQuery} label:"${argv.monitorTag}"`;
-          searchCmd = `gh search issues '${searchQuery}' --json url,title,number,repository`;
-        } else {
-          searchQuery = `${baseQuery} label:${argv.monitorTag}`;
-          searchCmd = `gh search issues '${searchQuery}' --json url,title,number,repository`;
-        }
-        
-        await log(`   🔎 Fetching labeled issues with pagination and rate limiting...`);
-        await log(`   🔎 Search query: ${searchQuery}`, { verbose: true });
-        await log(`   🔎 Command: ${searchCmd}`, { verbose: true });
-        
-        try {
-          issues = await fetchAllIssuesWithPagination(searchCmd);
-        } catch (searchError) {
-          await log(`   ⚠️  Search failed: ${cleanErrorMessage(searchError)}`, { verbose: true });
 
-          // Check if the error is due to rate limiting
-          if (isRateLimitError(searchError)) {
-            await log(`   🔍 Rate limit detected - attempting repository fallback...`);
-            try {
-              issues = await fetchIssuesFromRepositories(owner, scope, argv.monitorTag, false);
-            } catch (fallbackError) {
-              await log(`   ❌ Repository fallback failed: ${cleanErrorMessage(fallbackError)}`, { verbose: true });
+        // Handle label with potential spaces (only for organization scope)
+        if (scope === 'organization') {
+          let searchQuery;
+          let searchCmd;
+
+          if (argv.monitorTag.includes(' ')) {
+            searchQuery = `${baseQuery} label:"${argv.monitorTag}"`;
+            searchCmd = `gh search issues '${searchQuery}' --json url,title,number,repository`;
+          } else {
+            searchQuery = `${baseQuery} label:${argv.monitorTag}`;
+            searchCmd = `gh search issues '${searchQuery}' --json url,title,number,repository`;
+          }
+
+          await log(`   🔎 Fetching labeled issues with pagination and rate limiting...`);
+          await log(`   🔎 Search query: ${searchQuery}`, { verbose: true });
+          await log(`   🔎 Command: ${searchCmd}`, { verbose: true });
+
+          try {
+            issues = await fetchAllIssuesWithPagination(searchCmd);
+          } catch (searchError) {
+            await log(`   ⚠️  Search failed: ${cleanErrorMessage(searchError)}`, { verbose: true });
+
+            // Check if the error is due to rate limiting
+            if (isRateLimitError(searchError)) {
+              await log(`   🔍 Rate limit detected - attempting repository fallback...`);
+              try {
+                issues = await fetchIssuesFromRepositories(owner, scope, argv.monitorTag, false);
+              } catch (fallbackError) {
+                await log(`   ❌ Repository fallback failed: ${cleanErrorMessage(fallbackError)}`, { verbose: true });
+                issues = [];
+              }
+            } else {
               issues = [];
             }
-          } else {
-            issues = [];
           }
         }
       }
