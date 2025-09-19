@@ -61,10 +61,19 @@ export const executeClaudeCommand = async (params) => {
     claudeArgs = `--resume ${argv.resume} ${claudeArgs}`;
   }
 
-  claudeArgs += ` -p "${escapedPrompt}" --append-system-prompt "${escapedSystemPrompt}"`;
+  // Write prompts to files to avoid shell escaping issues
+  const fs = await use('fs');
+  const path = await use('path');
+  const promptFile = path.join(tempDir, '.claude-prompt.txt');
+  const systemPromptFile = path.join(tempDir, '.claude-system-prompt.txt');
+
+  await fs.promises.writeFile(promptFile, prompt);
+  await fs.promises.writeFile(systemPromptFile, systemPrompt);
+
+  claudeArgs += ` --prompt-file "${promptFile}" --system-prompt-file "${systemPromptFile}"`;
 
   // Print the command being executed (with cd for reproducibility)
-  const fullCommand = `(cd "${tempDir}" && ${claudePath} ${claudeArgs} | jq -c .)`;
+  const fullCommand = `(cd "${tempDir}" && ${claudePath} ${claudeArgs})`;
   await log(`\n${formatAligned('📋', 'Command details:', '')}`);
   await log(formatAligned('📂', 'Working directory:', tempDir, 2));
   await log(formatAligned('🌿', 'Branch:', branchName, 2));
@@ -92,13 +101,23 @@ export const executeClaudeCommand = async (params) => {
   }
 
   // Execute the Claude command
+  // We need to use execSync for complex command with proper shell escaping
   let commandStream;
   try {
+    // For Docker/non-async-iterable environments, we need to handle this differently
+    // Build the full command as a single string
+    const fullClaudeCommand = `${claudePath} ${claudeArgs}`;
+
+    console.error('[DEBUG] Attempting to execute Claude command...');
+    console.error('[DEBUG] Command path:', claudePath);
+    console.error('[DEBUG] Command length:', fullClaudeCommand.length);
+
+    // Try using the $ function first
     commandStream = $({
       cwd: tempDir,
       shell: true,
       exitOnError: false
-    })`${claudePath} ${claudeArgs} | jq -c .`;
+    })`${fullClaudeCommand} | jq -c .`;
   } catch (cmdError) {
     console.error('[ERROR] Failed to create command stream:', cmdError);
     console.error('[ERROR] Error message:', cmdError.message);

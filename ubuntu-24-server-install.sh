@@ -148,7 +148,7 @@ create_swap_file() {
 # --- Ensure prerequisites ---
 apt_update_safe
 
-sudo apt install -y wget curl unzip git sudo ca-certificates gnupg dotnet-sdk-8.0
+sudo apt install -y wget curl unzip git sudo ca-certificates gnupg dotnet-sdk-8.0 jq
 apt_cleanup
 
 # --- Setup swap file ---
