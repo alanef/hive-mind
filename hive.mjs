@@ -797,7 +797,8 @@ async function fetchIssues() {
 
         // Use /user/issues with filter=all to get all accessible issues
         await log(`   ℹ️  Note: This includes issues from all repos you have access to (owned, collaborator, org member)`);
-        const userIssuesCmd = `gh api 'user/issues?filter=all&state=open&per_page=100' --paginate --jq '.[] | {url: .html_url, title: .title, number: .number, repository: .repository}'`;
+        // Important: Filter out pull requests (they have pull_request property)
+        const userIssuesCmd = `gh api 'user/issues?filter=all&state=open&per_page=100' --paginate --jq '.[] | select(.pull_request == null) | {url: .html_url, title: .title, number: .number, repository: .repository}'`;
 
         await log(`   🔎 Command: ${userIssuesCmd}`, { verbose: true });
 
@@ -897,7 +898,8 @@ async function fetchIssues() {
 
           // Build the API query with labels parameter
           const encodedLabel = encodeURIComponent(argv.monitorTag);
-          const userIssuesCmd = `gh api 'user/issues?filter=all&state=open&labels=${encodedLabel}&per_page=100' --paginate --jq '.[] | {url: .html_url, title: .title, number: .number, repository: .repository}'`;
+          // Important: Filter out pull requests (they have pull_request property)
+          const userIssuesCmd = `gh api 'user/issues?filter=all&state=open&labels=${encodedLabel}&per_page=100' --paginate --jq '.[] | select(.pull_request == null) | {url: .html_url, title: .title, number: .number, repository: .repository}'`;
 
           await log(`   🔎 Command: ${userIssuesCmd}`, { verbose: true });
 
