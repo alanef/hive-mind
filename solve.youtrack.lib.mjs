@@ -52,8 +52,6 @@ export async function validateYouTrackUrl(issueUrl) {
       console.error('    YOUTRACK_API_KEY - Your YouTrack API token');
       console.error('    YOUTRACK_PROJECT_CODE - Project code (e.g., PAG)');
       console.error('    YOUTRACK_STAGE - Current stage field value');
-      console.error('  Optional:');
-      console.error('    YOUTRACK_NEXT_STAGE - Stage to move issue to after PR creation');
       process.exit(1);
     }
   }
@@ -88,15 +86,8 @@ export async function updateYouTrackIssue(youTrackIssueId, youTrackConfig, prUrl
     await log(`⚠️ Failed to add comment to YouTrack issue`, { level: 'warning' });
   }
 
-  // Update issue stage if nextStage is configured
-  if (youTrackConfig.nextStage) {
-    const stageUpdated = await updateYouTrackIssueStage(youTrackIssueId, youTrackConfig.nextStage, youTrackConfig);
-    if (stageUpdated) {
-      await log(`✅ Updated YouTrack issue stage to "${youTrackConfig.nextStage}"`);
-    } else {
-      await log(`⚠️ Failed to update YouTrack issue stage`, { level: 'warning' });
-    }
-  }
+  // Note: We no longer automatically move stages after PR creation
+  // The stage transition should be handled by YouTrack workflows or manual review
 }
 
 /**

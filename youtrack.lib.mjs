@@ -20,8 +20,7 @@ import { log, cleanErrorMessage } from './lib.mjs';
  * @property {string} apiKey - YouTrack API token/key for authentication
  * @property {string} projectMap - Mapping of YouTrack projects to GitHub repos (e.g., "PAG:owner/repo" or "PAG:owner/repo1,DEV:owner/repo2")
  * @property {string} stage - Stage to monitor for issues (e.g., "Ready for Development")
- * @property {string} nextStage - Stage to move issues to after PR creation (e.g., "In Review")
- */
+e */
 
 /**
  * YouTrack issue object
@@ -377,8 +376,7 @@ export function createYouTrackConfigFromEnv() {
     url: process.env.YOUTRACK_URL,
     apiKey: process.env.YOUTRACK_API_KEY,
     projectMap: process.env.YOUTRACK_PROJECT_MAP,
-    stage: process.env.YOUTRACK_STAGE,
-    nextStage: process.env.YOUTRACK_NEXT_STAGE
+    stage: process.env.YOUTRACK_STAGE
   };
 
   // Check if basic configuration is available
