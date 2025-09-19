@@ -293,7 +293,7 @@ if (argv.verbose) {
   await log(`   Is PR URL: ${!!isPrUrl}`, { verbose: true });
 }
 
-const claudePath = process.env.CLAUDE_PATH || '/home/hive/.bun/bin/claude';
+const claudePath = process.env.CLAUDE_PATH || 'claude';
 
 // Parse URL components using validation module
 const urlComponents = parseUrlComponents(issueUrl);
