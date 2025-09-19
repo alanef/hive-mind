@@ -293,7 +293,8 @@ if (argv.verbose) {
   await log(`   Is PR URL: ${!!isPrUrl}`, { verbose: true });
 }
 
-const claudePath = process.env.CLAUDE_PATH || 'claude';
+// Use full path to claude in Docker environment
+const claudePath = process.env.CLAUDE_PATH || (process.env.USER === 'hive' ? '/home/hive/.bun/bin/claude' : 'claude');
 
 // Parse URL components using validation module
 const urlComponents = parseUrlComponents(issueUrl);

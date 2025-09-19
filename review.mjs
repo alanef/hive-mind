@@ -112,7 +112,8 @@ if (!prUrl.match(/^https:\/\/github\.com\/[^\/]+\/[^\/]+\/pull\/\d+$/)) {
   process.exit(1);
 }
 
-const claudePath = process.env.CLAUDE_PATH || 'claude';
+// Use full path to claude in Docker environment
+const claudePath = process.env.CLAUDE_PATH || (process.env.USER === 'hive' ? '/home/hive/.bun/bin/claude' : 'claude');
 
 // Extract repository and PR number from URL
 const urlParts = prUrl.split('/');

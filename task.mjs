@@ -150,7 +150,8 @@ await log(formatAligned('💡', 'Clarify mode:', argv.clarify ? 'enabled' : 'dis
 await log(formatAligned('🔍', 'Decompose mode:', argv.decompose ? 'enabled' : 'disabled'));
 await log(formatAligned('📄', 'Output format:', argv.outputFormat));
 
-const claudePath = process.env.CLAUDE_PATH || 'claude';
+// Use full path to claude in Docker environment
+const claudePath = process.env.CLAUDE_PATH || (process.env.USER === 'hive' ? '/home/hive/.bun/bin/claude' : 'claude');
 
 // Helper function to execute Claude command
 const executeClaude = (prompt, model) => {
