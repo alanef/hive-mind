@@ -766,8 +766,10 @@ async function fetchIssues() {
       } else if (scope === 'organization') {
         searchCmd = `gh search issues org:${owner} is:open --json url,title,number,repository`;
       } else {
-        // User scope
-        searchCmd = `gh search issues user:${owner} is:open --json url,title,number,repository`;
+        // User scope - GitHub search doesn't support "issues in repos owned by user"
+        // We need to fetch from repositories individually
+        issues = await fetchIssuesFromRepositories(owner, 'user', null, true);
+        return issues;
       }
       
       await log(`   🔎 Fetching all issues with pagination and rate limiting...`);
@@ -814,7 +816,10 @@ async function fetchIssues() {
         if (scope === 'organization') {
           baseQuery = `org:${owner} is:issue is:open`;
         } else {
-          baseQuery = `user:${owner} is:issue is:open`;
+          // User scope - GitHub search doesn't support "issues in repos owned by user"
+          // We need to fetch from repositories individually with label filter
+          issues = await fetchIssuesFromRepositories(owner, 'user', argv.monitorTag, true);
+          return issues;
         }
         
         // Handle label with potential spaces
