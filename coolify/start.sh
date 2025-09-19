@@ -78,7 +78,7 @@ if gh auth status >/dev/null 2>&1 && [ -n "$GITHUB_URL" ]; then
 
   # YouTrack integration options
   [ "$YOUTRACK_MODE" = "true" ] && HIVE_CMD="$HIVE_CMD --youtrack-mode"
-  [ -n "$YOUTRACK_PROJECT_CODE" ] && HIVE_CMD="$HIVE_CMD --youtrack-project \"$YOUTRACK_PROJECT_CODE\""
+  [ -n "$YOUTRACK_PROJECT_MAP" ] && HIVE_CMD="$HIVE_CMD --youtrack-project-map \"$YOUTRACK_PROJECT_MAP\""
   [ -n "$YOUTRACK_STAGE" ] && HIVE_CMD="$HIVE_CMD --youtrack-stage \"$YOUTRACK_STAGE\""
 
   # Target branch for PRs
