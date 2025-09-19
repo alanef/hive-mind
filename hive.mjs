@@ -285,9 +285,10 @@ const createYargsConfig = (yargsInstance) => {
       type: 'string',
       description: 'Override YouTrack stage to monitor (overrides YOUTRACK_STAGE env var)'
     })
-    .option('youtrack-project', {
+    .option('youtrack-project-map', {
       type: 'string',
-      description: 'Override YouTrack project code (overrides YOUTRACK_PROJECT_CODE env var)'
+      description: 'Override YouTrack project mapping (overrides YOUTRACK_PROJECT_MAP env var)',
+      alias: 'ypm'
     })
     .option('target-branch', {
       type: 'string',
@@ -388,8 +389,8 @@ if (argv.youtrackMode) {
 
   if (!youTrackConfig) {
     await log(`❌ YouTrack mode requires environment variables to be set`, { level: 'error' });
-    await log(`   Required: YOUTRACK_URL, YOUTRACK_API_KEY, YOUTRACK_PROJECT_CODE, YOUTRACK_STAGE`, { level: 'error' });
-    await log(`   Example: YOUTRACK_URL=https://mycompany.youtrack.cloud`, { level: 'error' });
+    await log(`   Required: YOUTRACK_URL, YOUTRACK_API_KEY, YOUTRACK_PROJECT_MAP, YOUTRACK_STAGE`, { level: 'error' });
+    await log(`   Example: YOUTRACK_PROJECT_MAP="PAG:owner/repo1,DEV:owner/repo2"`, { level: 'error' });
     process.exit(1);
   }
 
@@ -397,8 +398,8 @@ if (argv.youtrackMode) {
   if (argv.youtrackStage) {
     youTrackConfig.stage = argv.youtrackStage;
   }
-  if (argv.youtrackProject) {
-    youTrackConfig.projectCode = argv.youtrackProject;
+  if (argv.youtrackProjectMap) {
+    youTrackConfig.projectMap = argv.youtrackProjectMap;
   }
 
   // Validate configuration
@@ -454,9 +455,15 @@ if (!repo) {
 await log(`🎯 Monitoring Configuration:`);
 if (argv.youtrackMode) {
   await log(`   📍 Source: YouTrack - ${youTrackConfig.url}`);
-  await log(`   📋 Project: ${youTrackConfig.projectCode}`);
+  const { parseProjectMapping } = await import('./youtrack.lib.mjs');
+  const projectMapping = parseProjectMapping(youTrackConfig.projectMap);
+  const projectCodes = Object.keys(projectMapping);
+  await log(`   📋 Projects: ${projectCodes.join(', ')}`);
+  await log(`   🔀 Mappings:`);
+  for (const [proj, repo] of Object.entries(projectMapping)) {
+    await log(`      ${proj} → ${repo}`);
+  }
   await log(`   📌 Stage: "${youTrackConfig.stage}"`);
-  await log(`   📍 GitHub Target: ${scope.charAt(0).toUpperCase() + scope.slice(1)} - ${owner}${repo ? `/${repo}` : ''}`);
 } else {
   await log(`   📍 Target: ${scope.charAt(0).toUpperCase() + scope.slice(1)} - ${owner}${repo ? `/${repo}` : ''}`);
   if (argv.projectMode) {
@@ -734,7 +741,10 @@ async function hasOpenPullRequests(issueUrl) {
 // Function to fetch issues from GitHub
 async function fetchIssues() {
   if (argv.youtrackMode) {
-    await log(`\n🔍 Fetching issues from YouTrack project ${youTrackConfig.projectCode} (stage: "${youTrackConfig.stage}")...`);
+    const { parseProjectMapping } = await import('./youtrack.lib.mjs');
+    const projectMapping = parseProjectMapping(youTrackConfig.projectMap);
+    const projectCodes = Object.keys(projectMapping);
+    await log(`\n🔍 Fetching issues from YouTrack projects [${projectCodes.join(', ')}] (stage: "${youTrackConfig.stage}")...`);
   } else if (argv.projectMode) {
     await log(`\n🔍 Fetching issues from GitHub Project #${argv.projectNumber} (status: "${argv.projectStatus}")...`);
   } else if (argv.allIssues) {

@@ -18,7 +18,7 @@ import { log, cleanErrorMessage } from './lib.mjs';
  * @typedef {Object} YouTrackConfig
  * @property {string} url - YouTrack instance URL (e.g., https://mycompany.youtrack.cloud)
  * @property {string} apiKey - YouTrack API token/key for authentication
- * @property {string} projectCode - Project code to monitor (e.g., PROJECT-1)
+ * @property {string} projectMap - Mapping of YouTrack projects to GitHub repos (e.g., "PAG:owner/repo" or "PAG:owner/repo1,DEV:owner/repo2")
  * @property {string} stage - Stage to monitor for issues (e.g., "Ready for Development")
  * @property {string} nextStage - Stage to move issues to after PR creation (e.g., "In Review")
  */
@@ -55,8 +55,8 @@ export function validateYouTrackConfig(config) {
     throw new Error('YOUTRACK_API_KEY is required');
   }
 
-  if (!config.projectCode) {
-    throw new Error('YOUTRACK_PROJECT_CODE is required');
+  if (!config.projectMap) {
+    throw new Error('YOUTRACK_PROJECT_MAP is required (format: "PROJECT:owner/repo" or "PROJ1:owner/repo1,PROJ2:owner/repo2")');
   }
 
   if (!config.stage) {
@@ -147,7 +147,9 @@ export async function testYouTrackConnection(config) {
 
     // Add debug logging
     await log(`🔍 Testing YouTrack connection to: ${config.url}`);
-    await log(`   Project: ${config.projectCode}`);
+    const projectMapping = parseProjectMapping(config.projectMap);
+    const projectCodes = Object.keys(projectMapping);
+    await log(`   Projects: ${projectCodes.join(', ')}`);
     await log(`   Stage: ${config.stage}`);
 
     // Test connection by fetching user info
@@ -172,11 +174,22 @@ export async function fetchYouTrackIssues(config) {
   try {
     validateYouTrackConfig(config);
 
-    await log(`🔍 Fetching YouTrack issues from project ${config.projectCode} with stage "${config.stage}"`);
+    // Parse the project mapping
+    const projectMapping = parseProjectMapping(config.projectMap);
+    const projectCodes = Object.keys(projectMapping);
 
-    // Construct search query
-    // YouTrack query syntax: project: {PROJECT} State: {STAGE}
-    const query = `project: {${config.projectCode}} State: {${config.stage}}`;
+    if (projectCodes.length === 0) {
+      await log(`❌ No valid projects found in YOUTRACK_PROJECT_MAP`);
+      return [];
+    }
+
+    await log(`🔍 Fetching YouTrack issues from ${projectCodes.length} project(s) with stage "${config.stage}"`);
+    await log(`   Projects: ${projectCodes.join(', ')}`);
+
+    // Construct search query for all projects
+    // YouTrack query syntax: project: {PROJECT1},{PROJECT2} State: {STAGE}
+    const projectQuery = projectCodes.map(p => `{${p}}`).join(',');
+    const query = `project: ${projectQuery} State: {${config.stage}}`;
 
     // Fetch issues with detailed fields including idReadable
     const endpoint = `/issues?query=${encodeURIComponent(query)}&fields=id,idReadable,summary,description,created,updated,reporter(login,fullName),assignee(login,fullName),customFields(name,value(name))`;
@@ -189,24 +202,32 @@ export async function fetchYouTrackIssues(config) {
     }
 
     // Transform YouTrack issues to our standard format
-    const issues = response.map(issue => ({
-      id: issue.idReadable || issue.id,  // Use readable ID (PAG-45) if available
-      summary: issue.summary || 'No title',
-      description: issue.description || '',
-      stage: config.stage, // Current stage (what we filtered by)
-      url: `${config.url}/issue/${issue.idReadable || issue.id}`,
-      reporter: issue.reporter ? (issue.reporter.fullName || issue.reporter.login) : 'Unknown',
-      assignee: issue.assignee ? (issue.assignee.fullName || issue.assignee.login) : null,
-      created: issue.created ? new Date(issue.created) : new Date(),
-      updated: issue.updated ? new Date(issue.updated) : new Date()
-    }));
+    const issues = response.map(issue => {
+      // Extract project code from issue ID (e.g., "PAG-45" -> "PAG")
+      const projectCode = (issue.idReadable || issue.id).split('-')[0];
+      const githubRepo = projectMapping[projectCode];
+
+      return {
+        id: issue.idReadable || issue.id,  // Use readable ID (PAG-45) if available
+        summary: issue.summary || 'No title',
+        description: issue.description || '',
+        stage: config.stage, // Current stage (what we filtered by)
+        url: `${config.url}/issue/${issue.idReadable || issue.id}`,
+        reporter: issue.reporter ? (issue.reporter.fullName || issue.reporter.login) : 'Unknown',
+        assignee: issue.assignee ? (issue.assignee.fullName || issue.assignee.login) : null,
+        created: issue.created ? new Date(issue.created) : new Date(),
+        updated: issue.updated ? new Date(issue.updated) : new Date(),
+        projectCode: projectCode,
+        githubRepo: githubRepo  // GitHub repo this issue should be synced to
+      };
+    });
 
     await log(`📋 Found ${issues.length} YouTrack issue(s) in stage "${config.stage}"`);
 
     if (issues.length > 0) {
       await log(`   Issues found:`);
       for (const issue of issues) {
-        await log(`   - ${issue.id}: ${issue.summary}`);
+        await log(`   - ${issue.id}: ${issue.summary} -> ${issue.githubRepo}`);
       }
     }
 
@@ -355,17 +376,50 @@ export function createYouTrackConfigFromEnv() {
   const config = {
     url: process.env.YOUTRACK_URL,
     apiKey: process.env.YOUTRACK_API_KEY,
-    projectCode: process.env.YOUTRACK_PROJECT_CODE,
+    projectMap: process.env.YOUTRACK_PROJECT_MAP,
     stage: process.env.YOUTRACK_STAGE,
     nextStage: process.env.YOUTRACK_NEXT_STAGE
   };
 
   // Check if basic configuration is available
-  if (!config.url || !config.apiKey || !config.projectCode || !config.stage) {
+  if (!config.url || !config.apiKey || !config.projectMap || !config.stage) {
     return null;
   }
 
   return config;
+}
+
+/**
+ * Parse YouTrack project mapping from string
+ * @param {string} projectMapStr - Mapping string (e.g., "PAG:owner/repo" or "PAG:owner/repo1,DEV:owner/repo2")
+ * @returns {Object} Map of YouTrack project codes to GitHub repos
+ */
+export function parseProjectMapping(projectMapStr) {
+  if (!projectMapStr) {
+    return {};
+  }
+
+  try {
+    // Try parsing as JSON first
+    if (projectMapStr.startsWith('{')) {
+      return JSON.parse(projectMapStr);
+    }
+
+    // Otherwise parse as comma-separated KEY:VALUE pairs
+    // Format: "PROJECT1:owner/repo1,PROJECT2:owner/repo2"
+    const mapping = {};
+    const pairs = projectMapStr.split(',');
+    for (const pair of pairs) {
+      const [project, repo] = pair.trim().split(':');
+      if (project && repo) {
+        mapping[project.trim()] = repo.trim();
+      }
+    }
+    return mapping;
+  } catch (error) {
+    console.error('Failed to parse YOUTRACK_PROJECT_MAP:', error.message);
+    return {};
+  }
 }
 
 /**
