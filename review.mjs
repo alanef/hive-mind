@@ -112,7 +112,7 @@ if (!prUrl.match(/^https:\/\/github\.com\/[^\/]+\/[^\/]+\/pull\/\d+$/)) {
   process.exit(1);
 }
 
-const claudePath = process.env.CLAUDE_PATH || 'claude';
+const claudePath = process.env.CLAUDE_PATH || '/home/hive/.bun/bin/claude';
 
 // Extract repository and PR number from URL
 const urlParts = prUrl.split('/');

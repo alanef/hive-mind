@@ -150,7 +150,7 @@ await log(formatAligned('💡', 'Clarify mode:', argv.clarify ? 'enabled' : 'dis
 await log(formatAligned('🔍', 'Decompose mode:', argv.decompose ? 'enabled' : 'disabled'));
 await log(formatAligned('📄', 'Output format:', argv.outputFormat));
 
-const claudePath = process.env.CLAUDE_PATH || 'claude';
+const claudePath = process.env.CLAUDE_PATH || '/home/hive/.bun/bin/claude';
 
 // Helper function to execute Claude command
 const executeClaude = (prompt, model) => {
