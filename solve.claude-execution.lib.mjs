@@ -113,11 +113,12 @@ export const executeClaudeCommand = async (params) => {
     console.error('[DEBUG] Command length:', fullClaudeCommand.length);
 
     // Try using the $ function first
+    // Use sh -c to properly handle the piped command
     commandStream = $({
       cwd: tempDir,
-      shell: true,
+      shell: '/bin/sh',
       exitOnError: false
-    })`${fullClaudeCommand} | jq -c .`;
+    })`sh -c "${fullClaudeCommand} | jq -c ."`;
   } catch (cmdError) {
     console.error('[ERROR] Failed to create command stream:', cmdError);
     console.error('[ERROR] Error message:', cmdError.message);
