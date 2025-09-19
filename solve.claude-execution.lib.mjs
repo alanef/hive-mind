@@ -110,6 +110,63 @@ export const executeClaudeCommand = async (params) => {
   console.error('[DEBUG] commandStream is:', commandStream);
   console.error('[DEBUG] commandStream has Symbol.asyncIterator:', !!commandStream?.[Symbol.asyncIterator]);
 
+  // Check if commandStream needs to be started or if we need to access a stream property
+  if (!commandStream[Symbol.asyncIterator]) {
+    console.error('[DEBUG] commandStream properties:', Object.keys(commandStream));
+
+    // Check if there's a stream() method or similar
+    if (typeof commandStream.stream === 'function') {
+      console.error('[DEBUG] Found stream() method, calling it...');
+      commandStream = commandStream.stream();
+    } else if (typeof commandStream.stdout === 'function') {
+      console.error('[DEBUG] Found stdout() method, calling it...');
+      commandStream = commandStream.stdout();
+    } else if (commandStream._virtualGenerator) {
+      console.error('[DEBUG] Found _virtualGenerator, using it...');
+      commandStream = commandStream._virtualGenerator;
+    } else {
+      // Try to make it async iterable manually
+      console.error('[DEBUG] Creating manual async iterator...');
+      const originalStream = commandStream;
+
+      // Create async iterable wrapper
+      commandStream = {
+        [Symbol.asyncIterator]: async function* () {
+          // Start the command if not started
+          if (!originalStream.started && typeof originalStream.start === 'function') {
+            console.error('[DEBUG] Starting command stream...');
+            await originalStream.start();
+          }
+
+          // Try to get the result
+          try {
+            const result = await originalStream;
+            console.error('[DEBUG] Command completed with result:', result);
+
+            // Yield stdout if present
+            if (result && result.stdout) {
+              yield { stdout: result.stdout };
+            }
+
+            // Yield stderr if present
+            if (result && result.stderr) {
+              yield { stderr: result.stderr };
+            }
+
+            // Signal completion
+            yield { done: true, code: result ? result.code : 0 };
+          } catch (error) {
+            console.error('[DEBUG] Command failed:', error);
+            yield { stderr: error.message || 'Command failed' };
+            yield { done: true, code: error.code || 1 };
+          }
+        }
+      };
+    }
+  }
+
+  console.error('[DEBUG] Final commandStream has Symbol.asyncIterator:', !!commandStream?.[Symbol.asyncIterator]);
+
   for await (const chunk of commandStream) {
 
     // Handle command exit
