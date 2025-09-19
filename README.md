@@ -67,6 +67,9 @@ hive https://github.com/owner/repo --monitor-tag "help wanted" --concurrency 3
 # Monitor all issues in organization
 hive https://github.com/microsoft --all-issues --max-issues 10
 
+# Monitor user repositories (must be authenticated as that user)
+hive https://github.com/alanef --monitor-tag "help wanted"
+
 # Run collaborative review process
 review --repo owner/repo --pr 456
 
@@ -158,7 +161,8 @@ hive https://github.com/owner/repo --monitor-tag "bug" --concurrency 4
 # Monitor all issues in an organization
 hive https://github.com/microsoft --all-issues --max-issues 20 --once
 
-# Monitor user repositories with high concurrency
+# Monitor user repositories (authenticated user only)
+# Note: Shows issues from ALL repos you have access to (owned, collaborator, org member)
 hive https://github.com/username --all-issues --concurrency 8 --interval 120
 
 # Skip issues that already have PRs

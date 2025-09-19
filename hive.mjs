@@ -92,16 +92,27 @@ async function fetchIssuesFromRepositories(owner, scope, monitorTag, fetchAllIss
 
     await log(`   📊 Found ${repositories.length} repositories`);
 
+    // Show list of repositories if not too many
+    if (repositories.length <= 20) {
+      await log(`   📦 Repositories to check:`);
+      for (const repo of repositories) {
+        await log(`      - ${repo.owner?.login || owner}/${repo.name}`);
+      }
+    } else {
+      await log(`   📦 Will check ${repositories.length} repositories (too many to list)`);
+    }
+
     let collectedIssues = [];
     let processedRepos = 0;
 
     // Process repositories in batches to avoid overwhelming the API
-    for (const repo of repositories) {
+    for (let i = 0; i < repositories.length; i++) {
+      const repo = repositories[i];
       try {
         const repoName = repo.name;
         const ownerName = repo.owner?.login || owner;
 
-        await log(`   🔍 Fetching issues from ${ownerName}/${repoName}...`, { verbose: true });
+        await log(`   🔍 [${i + 1}/${repositories.length}] Checking ${ownerName}/${repoName}...`);
 
         // Build the appropriate issue list command
         let issueCmd;
@@ -129,7 +140,7 @@ async function fetchIssuesFromRepositories(owner, scope, monitorTag, fetchAllIss
         processedRepos++;
 
         if (issuesWithRepo.length > 0) {
-          await log(`   ✅ Found ${issuesWithRepo.length} issues in ${ownerName}/${repoName}`, { verbose: true });
+          await log(`      ✓ Found ${issuesWithRepo.length} issue${issuesWithRepo.length > 1 ? 's' : ''}`);
         }
 
       } catch (repoError) {
@@ -766,9 +777,56 @@ async function fetchIssues() {
       } else if (scope === 'organization') {
         searchCmd = `gh search issues org:${owner} is:open --json url,title,number,repository`;
       } else {
-        // User scope - GitHub search doesn't support "issues in repos owned by user"
-        // We need to fetch from repositories individually
-        issues = await fetchIssuesFromRepositories(owner, 'user', null, true);
+        // User scope - use /user/issues API for the authenticated user
+        await log(`   🔍 Fetching issues for user ${owner}...`);
+
+        // Check if we're monitoring the authenticated user
+        const currentUserResult = await $({ silent: true })`gh api user --jq .login`;
+        if (currentUserResult.code !== 0) {
+          await log(`   ❌ Failed to get current authenticated user`);
+          return [];
+        }
+
+        const currentUser = currentUserResult.stdout.toString().trim();
+
+        if (currentUser !== owner) {
+          await log(`   ⚠️  Can only monitor issues for the authenticated user (${currentUser})`);
+          await log(`   ℹ️  To monitor ${owner}, authenticate as that user: gh auth login`);
+          return [];
+        }
+
+        // Use /user/issues with filter=all to get all accessible issues
+        await log(`   ℹ️  Note: This includes issues from all repos you have access to (owned, collaborator, org member)`);
+        const userIssuesCmd = `gh api 'user/issues?filter=all&state=open&per_page=100' --paginate --jq '.[] | {url: .html_url, title: .title, number: .number, repository: .repository}'`;
+
+        await log(`   🔎 Command: ${userIssuesCmd}`, { verbose: true });
+
+        try {
+          const { execSync } = await import('child_process');
+          const output = execSync(userIssuesCmd, { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+
+          if (!output || output.trim() === '') {
+            return [];
+          }
+
+          // Parse the JSON objects (one per line)
+          const lines = output.trim().split('\n');
+          issues = lines.map(line => {
+            const issue = JSON.parse(line);
+            return {
+              url: issue.url,
+              title: issue.title,
+              number: issue.number,
+              repository: issue.repository
+            };
+          });
+
+          await log(`   📊 Found ${issues.length} total issues from all accessible repositories`);
+        } catch (error) {
+          await log(`   ❌ Failed to fetch user issues: ${cleanErrorMessage(error)}`);
+          return [];
+        }
+
         return issues;
       }
       
@@ -816,9 +874,59 @@ async function fetchIssues() {
         if (scope === 'organization') {
           baseQuery = `org:${owner} is:issue is:open`;
         } else {
-          // User scope - GitHub search doesn't support "issues in repos owned by user"
-          // We need to fetch from repositories individually with label filter
-          issues = await fetchIssuesFromRepositories(owner, 'user', argv.monitorTag, true);
+          // User scope - use /user/issues API for the authenticated user
+          await log(`   🔍 Fetching labeled issues for user ${owner}...`);
+
+          // Check if we're monitoring the authenticated user
+          const currentUserResult = await $({ silent: true })`gh api user --jq .login`;
+          if (currentUserResult.code !== 0) {
+            await log(`   ❌ Failed to get current authenticated user`);
+            return [];
+          }
+
+          const currentUser = currentUserResult.stdout.toString().trim();
+
+          if (currentUser !== owner) {
+            await log(`   ⚠️  Can only monitor issues for the authenticated user (${currentUser})`);
+            await log(`   ℹ️  To monitor ${owner}, authenticate as that user: gh auth login`);
+            return [];
+          }
+
+          // Use /user/issues with filter=all to get all accessible issues, then filter by label
+          await log(`   ℹ️  Note: This includes issues from all repos you have access to (owned, collaborator, org member)`);
+
+          // Build the API query with labels parameter
+          const encodedLabel = encodeURIComponent(argv.monitorTag);
+          const userIssuesCmd = `gh api 'user/issues?filter=all&state=open&labels=${encodedLabel}&per_page=100' --paginate --jq '.[] | {url: .html_url, title: .title, number: .number, repository: .repository}'`;
+
+          await log(`   🔎 Command: ${userIssuesCmd}`, { verbose: true });
+
+          try {
+            const { execSync } = await import('child_process');
+            const output = execSync(userIssuesCmd, { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+
+            if (!output || output.trim() === '') {
+              return [];
+            }
+
+            // Parse the JSON objects (one per line)
+            const lines = output.trim().split('\n');
+            issues = lines.map(line => {
+              const issue = JSON.parse(line);
+              return {
+                url: issue.url,
+                title: issue.title,
+                number: issue.number,
+                repository: issue.repository
+              };
+            });
+
+            await log(`   📊 Found ${issues.length} labeled issues from all accessible repositories`);
+          } catch (error) {
+            await log(`   ❌ Failed to fetch user issues: ${cleanErrorMessage(error)}`);
+            return [];
+          }
+
           return issues;
         }
         
