@@ -113,12 +113,24 @@ export const executeClaudeCommand = async (params) => {
     console.error('[DEBUG] Command length:', fullClaudeCommand.length);
 
     // Try using the $ function first
-    // Use sh -c to properly handle the piped command
+    console.error('[DEBUG] Full claude command:', fullClaudeCommand);
+    console.error('[DEBUG] Working directory:', tempDir);
+    console.error('[DEBUG] Checking if claude exists at path:', claudePath);
+
+    // Test if claude is accessible
+    const testResult = await $({ cwd: tempDir })`which claude || echo "claude not in PATH"`;
+    console.error('[DEBUG] which claude result:', testResult.stdout?.toString());
+
+    const testFullPath = await $({ cwd: tempDir })`ls -la ${claudePath} || echo "File not found at ${claudePath}"`;
+    console.error('[DEBUG] ls -la result:', testFullPath.stdout?.toString());
+
+    // Try different command execution methods
+    console.error('[DEBUG] Attempting method 1: direct command with pipe');
     commandStream = $({
       cwd: tempDir,
-      shell: '/bin/sh',
+      shell: true,
       exitOnError: false
-    })`sh -c "${fullClaudeCommand} | jq -c ."`;
+    })`${fullClaudeCommand} | jq -c .`;
   } catch (cmdError) {
     console.error('[ERROR] Failed to create command stream:', cmdError);
     console.error('[ERROR] Error message:', cmdError.message);
@@ -138,6 +150,8 @@ export const executeClaudeCommand = async (params) => {
     try {
       const result = await commandStream;
       console.error('[DEBUG] Command completed. Exit code:', result.code);
+      console.error('[DEBUG] Command stdout:', result.stdout?.toString()?.substring(0, 500));
+      console.error('[DEBUG] Command stderr:', result.stderr?.toString());
 
       // Process the output
       if (result.stdout) {
