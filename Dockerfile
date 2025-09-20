@@ -4,8 +4,8 @@ FROM gitpod/workspace-full:latest
 RUN brew install gh
 RUN brew install oven-sh/bun/bun
 
-# Set BUN_INSTALL for hive user (not gitpod)
-ENV BUN_INSTALL="/home/hive/.bun"
+# Set BUN_INSTALL for gitpod user
+ENV BUN_INSTALL="/home/gitpod/.bun"
 ENV PATH="${BUN_INSTALL}/bin:${PATH}"
 
 # Install Claude Code

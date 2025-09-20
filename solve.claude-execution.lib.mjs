@@ -108,54 +108,23 @@ export const executeClaudeCommand = async (params) => {
     // Build the full command as a single string
     const fullClaudeCommand = `${claudePath} ${claudeArgs}`;
 
-    console.error('[DEBUG] Attempting to execute Claude command...');
-    console.error('[DEBUG] Command path:', claudePath);
-    console.error('[DEBUG] Command length:', fullClaudeCommand.length);
-
     // Try using the $ function first
-    console.error('[DEBUG] Full claude command:', fullClaudeCommand);
-    console.error('[DEBUG] Working directory:', tempDir);
-    console.error('[DEBUG] Checking if claude exists at path:', claudePath);
-
-    // Test if claude is accessible
-    const testResult = await $({ cwd: tempDir })`which claude || echo "claude not in PATH"`;
-    console.error('[DEBUG] which claude result:', testResult.stdout?.toString());
-
-    const testFullPath = await $({ cwd: tempDir })`ls -la ${claudePath} || echo "File not found at ${claudePath}"`;
-    console.error('[DEBUG] ls -la result:', testFullPath.stdout?.toString());
-
-    // Try different command execution methods
-    console.error('[DEBUG] Attempting method 1: direct command with pipe');
-
-    // Use sh -c to ensure proper command parsing
-    const shellCommand = `sh -c '${fullClaudeCommand} | jq -c .'`;
-    console.error('[DEBUG] Shell command to execute:', shellCommand);
-
     commandStream = $({
       cwd: tempDir,
+      shell: true,
       exitOnError: false
-    })`${shellCommand}`;
+    })`${fullClaudeCommand} | jq -c .`;
   } catch (cmdError) {
-    console.error('[ERROR] Failed to create command stream:', cmdError);
-    console.error('[ERROR] Error message:', cmdError.message);
-    console.error('[ERROR] Error stack:', cmdError.stack);
     throw new Error(`Failed to create command stream: ${cmdError.message}`);
   }
-
-  console.error('[DEBUG] Type of commandStream:', typeof commandStream);
-  console.error('[DEBUG] commandStream has Symbol.asyncIterator:', !!commandStream?.[Symbol.asyncIterator]);
 
   // The command-stream module returns a ProcessRunner that's awaitable, not async-iterable
   // We need to execute it and process the output
   if (!commandStream[Symbol.asyncIterator]) {
-    console.error('[DEBUG] Command-stream is not async-iterable, executing as awaitable...');
 
     // Execute the command and get the result
     try {
       const result = await commandStream;
-      console.error('[DEBUG] Command completed. Exit code:', result.code);
-      console.error('[DEBUG] Command stdout:', result.stdout?.toString()?.substring(0, 500));
-      console.error('[DEBUG] Command stderr:', result.stderr?.toString());
 
       // Process the output
       if (result.stdout) {
